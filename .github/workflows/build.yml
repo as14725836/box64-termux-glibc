@@ -57,7 +57,7 @@ jobs:
         path: box64-*.tar.gz
 
     - name: 发布到 GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ env.BOX64_VERSION }}
         name: "Box64 ${{ env.BOX64_VERSION }} (aarch64)"
