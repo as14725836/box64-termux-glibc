@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: write  # 允许 GITHUB_TOKEN 创建 Release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -52,3 +55,16 @@ jobs:
       with:
         name: termux-glibc-box64
         path: termux-glibc-box64.tar.gz
+
+    - name: 发布到 GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Box64 (aarch64, Termux glibc)
+        files: termux-glibc-box64.tar.gz
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: 输出完成信息
+      run: |
+        echo "✅ Box64 构建完成并发布 Release"
