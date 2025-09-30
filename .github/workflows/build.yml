@@ -19,14 +19,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           cmake build-essential \
-          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu git tar zip
+          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu git tar
 
     - name: 克隆 Box64
       run: |
         git clone https://github.com/ptitSeb/box64
-        cd box64
-        # 获取版本号 (tag 或 commit)
-        echo "BOX64_VERSION=$(git describe --tags --always)" >> $GITHUB_ENV
 
     - name: 构建 Box64 (交叉编译)
       run: |
@@ -48,19 +45,10 @@ jobs:
         make
 
         # 打包只包含可执行文件
-        tar -czvf ../../box64-${{ env.BOX64_VERSION }}-aarch64.tar.gz box64
+        tar -czvf ../../termux-glibc-box64.tar.gz box64
 
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
       with:
-        name: box64-aarch64
-        path: box64-*.tar.gz
-
-    - name: 发布到 GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: ${{ env.BOX64_VERSION }}
-        name: "Box64 ${{ env.BOX64_VERSION }} (aarch64)"
-        files: box64-*.tar.gz
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: termux-glibc-box64
+        path: termux-glibc-box64.tar.gz
