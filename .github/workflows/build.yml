@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
     - name: 检出源码
@@ -22,7 +22,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           cmake build-essential \
-          gcc-aarch64-linux-gnu g++-aarch64-linux-gnu git tar
+          gcc git patchelf
 
     - name: 克隆 Box64
       run: |
@@ -30,22 +30,18 @@ jobs:
 
     - name: 构建 Box64 (交叉编译)
       run: |
-        export GLIBC_PREFIX=/data/data/com.termux/files/usr/glibc
-
         cd box64
-        sed -i 's|/usr|/data/data/com.termux/files/usr/glibc|g' CMakeLists.txt
-        sed -i 's|/etc|/data/data/com.termux/files/usr/glibc/etc|g' CMakeLists.txt
-
         mkdir build && cd build
         cmake .. \
-          -DCMAKE_INSTALL_PREFIX=$GLIBC_PREFIX \
           -DARM_DYNAREC=ON \
           -DCMAKE_BUILD_TYPE=Release \
           -DARM64=ON \
-          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+          -DWINLATOR_GLIBC=1 \
+          -DBAD_SIGNAL=1 \
+          -DSD8G2=1
 
-        make
+        make -j4
+        patchelf --set-interpreter /data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1 *
 
         # 打包只包含可执行文件
         tar -czvf ../../termux-glibc-box64.tar.gz box64
