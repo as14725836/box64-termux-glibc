@@ -1,9 +1,7 @@
 name: Build Box64 (aarch64)
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
   pull_request:
 
 permissions:
@@ -41,7 +39,7 @@ jobs:
           -DSD8G2=1
 
         make -j4
-        patchelf --set-interpreter /data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1 *
+        patchelf --set-interpreter /data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1 box64
 
         # 打包只包含可执行文件
         tar -czvf ../../termux-glibc-box64.tar.gz box64
