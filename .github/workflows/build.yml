@@ -3,6 +3,8 @@ name: Build Box64 (aarch64)
 on:
   workflow_dispatch:
   pull_request:
+  schedule:
+    - cron: '0 6 * * *'  # 🕕 每天早上6点自动检查更新构建
 
 permissions:
   contents: write  # 允许 GITHUB_TOKEN 创建 Release
@@ -15,21 +17,52 @@ jobs:
     - name: 检出源码
       uses: actions/checkout@v4
 
-    - name: 安装依赖
+    - name: 安装构建依赖
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          cmake build-essential \
-          gcc git patchelf
+        sudo apt-get install -y cmake build-essential gcc git patchelf
 
-    - name: 克隆 Box64
+    - name: 克隆 Box64 并检测更新
+      id: check_update
       run: |
-        git clone https://github.com/ptitSeb/box64
+        git clone --depth=1 https://github.com/ptitSeb/box64
+        cd box64
+        LATEST_COMMIT=$(git rev-parse HEAD)
+        echo "Box64 最新提交: $LATEST_COMMIT"
 
-    - name: 构建 Box64 (交叉编译)
+        # 读取上次构建记录
+        if [ -f ../last_box64_commit.txt ]; then
+          LAST_COMMIT=$(cat ../last_box64_commit.txt)
+          echo "上次构建提交: $LAST_COMMIT"
+        else
+          LAST_COMMIT="none"
+        fi
+
+        # 判断是否需要构建
+        if [ "$LATEST_COMMIT" = "$LAST_COMMIT" ]; then
+          echo "✅ 无新提交，跳过构建。"
+          echo "skip_build=true" >> $GITHUB_OUTPUT
+        else
+          echo "发现新提交，准备构建..."
+          echo "skip_build=false" >> $GITHUB_OUTPUT
+          echo "$LATEST_COMMIT" > ../last_box64_commit.txt
+        fi
+
+        echo "BOX64_COMMIT=$LATEST_COMMIT" >> $GITHUB_ENV
+        echo "BOX64_DATE=$(git log -1 --format=%cd --date=iso)" >> $GITHUB_ENV
+
+    - name: 跳过无更新构建
+      if: steps.check_update.outputs.skip_build == 'true'
+      run: |
+        echo "🟡 本次 Box64 无更新，终止构建流程。"
+        exit 0
+
+    - name: 构建 Box64 (aarch64)
       run: |
         cd box64
         mkdir build && cd build
+
+        echo "🧱 开始构建 Box64..."
         cmake .. \
           -DARM_DYNAREC=ON \
           -DCMAKE_BUILD_TYPE=Release \
@@ -39,27 +72,47 @@ jobs:
           -DSAVE_MEM=ON \
           -DSD8G2=ON
 
-        make -j4
-        patchelf --set-interpreter /data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1 box64
+        make -j$(nproc)
+        echo "✅ 构建完成"
 
-        # 打包只包含可执行文件
-        tar -czvf ../../termux-glibc-box64.tar.gz box64
+        echo "🔧 修补解释器路径..."
+        patchelf --set-interpreter /data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1 box64 || true
+
+        echo "📦 开始打包..."
+        tar -czvf ../../termux-glibc-box64-${BOX64_COMMIT:0:7}.tar.gz box64
+
+        echo "✅ 打包完成"
+        echo "文件信息:"
+        ls -lh ../../termux-glibc-box64-${BOX64_COMMIT:0:7}.tar.gz
+
+        echo "VERSION=${BOX64_COMMIT:0:7}" >> $GITHUB_ENV
 
     - name: 上传构建产物
       uses: actions/upload-artifact@v4
       with:
-        name: termux-glibc-box64
-        path: termux-glibc-box64.tar.gz
+        name: termux-glibc-box64-${{ env.VERSION }}
+        path: termux-glibc-box64-${{ env.VERSION }}.tar.gz
 
     - name: 发布到 GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ github.ref_name }}
         name: Box64 (aarch64, Termux glibc)
-        files: termux-glibc-box64.tar.gz
+        body: |
+          ✅ Box64 自动构建成功
+          - Commit: `${{ env.BOX64_COMMIT }}`
+          - 提交时间: `${{ env.BOX64_DATE }}`
+          - 构建平台: Ubuntu 24.04 ARM64
+        files: termux-glibc-box64-${{ env.VERSION }}.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: 输出完成信息
+    - name: 输出构建结果
       run: |
-        echo "✅ Box64 构建完成并发布 Release"
+        echo "✅ Box64 构建完成并已打包"
+        echo "版本号: $VERSION"
+        echo "Commit: ${BOX64_COMMIT}"
+        echo "提交时间: ${BOX64_DATE}"
+        echo "文件大小:"
+        ls -lh termux-glibc-box64-${VERSION}.tar.gz
