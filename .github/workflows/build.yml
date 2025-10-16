@@ -31,13 +31,14 @@ jobs:
           echo "最新提交: $LATEST_COMMIT"
           echo "LATEST_COMMIT=$LATEST_COMMIT" >> $GITHUB_ENV
 
-      # 🔹 下载上次构建提交记录 artifact
+      # 🔹 尝试下载上次构建提交记录 artifact
       - name: 下载上次构建提交记录
         id: download_last_commit
+        continue-on-error: true  # 允许失败，第一次运行会失败
         uses: actions/download-artifact@v4
         with:
           name: last-box64-commit
-          path: ./last_commit || true
+          path: ./last_commit
 
       # 🔹 检查是否需要构建
       - name: 检查是否需要构建
@@ -46,8 +47,10 @@ jobs:
           LAST_COMMIT_FILE="./last_commit/last_box64_commit.txt"
           if [ -f "$LAST_COMMIT_FILE" ]; then
             LAST_COMMIT=$(cat "$LAST_COMMIT_FILE")
+            echo "找到上次构建提交: $LAST_COMMIT"
           else
             LAST_COMMIT="none"
+            echo "首次运行或未找到上次构建记录"
           fi
 
           if [ "$LATEST_COMMIT" = "$LAST_COMMIT" ]; then
@@ -55,13 +58,17 @@ jobs:
             echo "skip_build=true" >> $GITHUB_OUTPUT
           else
             echo "发现新提交，准备构建..."
+            echo "上次提交: $LAST_COMMIT"
+            echo "最新提交: $LATEST_COMMIT"
             echo "skip_build=false" >> $GITHUB_OUTPUT
           fi
 
       # 🔹 跳过无更新构建
       - name: 跳过无更新构建
         if: steps.check_build.outputs.skip_build == 'true'
-        run: exit 0
+        run: |
+          echo "✅ 无新提交，跳过构建"
+          exit 0
 
       # 🔹 克隆 Box64 并构建
       - name: 克隆 Box64 并构建
@@ -83,14 +90,17 @@ jobs:
           make -j$(nproc)
           echo "✅ 构建完成"
 
+          # 修复动态链接器路径（针对 Termux glibc）
           patchelf --set-interpreter /data/data/com.termux/files/usr/glibc/lib/ld-linux-aarch64.so.1 box64 || true
 
-          TAR_FILE=../../termux-glibc-box64-${LATEST_COMMIT:0:7}.tar.gz
+          # 创建版本号和文件名
+          SHORT_COMMIT="${LATEST_COMMIT:0:7}"
+          TAR_FILE="../../termux-glibc-box64-${SHORT_COMMIT}.tar.gz"
           tar -czvf $TAR_FILE box64
 
           # 保存 last commit
           echo "$LATEST_COMMIT" > ../../last_box64_commit.txt
-          echo "VERSION=${LATEST_COMMIT:0:7}" >> $GITHUB_ENV
+          echo "VERSION=${SHORT_COMMIT}" >> $GITHUB_ENV
           echo "TAR_FILE=$TAR_FILE" >> $GITHUB_ENV
 
       # 🔹 上传构建产物
@@ -108,41 +118,38 @@ jobs:
         with:
           name: last-box64-commit
           path: last_box64_commit.txt
+          retention-days: 30  # 保留30天
 
       # 🔹 发布到 GitHub Release
       - name: 发布到 GitHub Release
         if: steps.check_build.outputs.skip_build == 'false'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name || env.VERSION }}
-          name: Box64 (aarch64, Termux glibc)
+          tag_name: box64-${{ env.VERSION }}
+          name: Box64 ${{ env.VERSION }} (aarch64, Termux glibc)
           body: |
             ✅ Box64 自动构建成功
+            
+            **构建信息:**
             - Commit: `${{ env.LATEST_COMMIT }}`
+            - 版本: ${{ env.VERSION }}
             - 构建平台: Ubuntu 24.04 ARM64
+            - 构建时间: ${{ fromJSON(format('"{0}"', github.event.head_commit.timestamp || github.run_started_at)) }}
+            
+            **使用说明:**
+            1. 解压后赋予执行权限: `chmod +x box64`
+            2. 确保已安装 Termux glibc 环境
+            3. 使用: `./box64 <x86_64程序>`
           files: ${{ env.TAR_FILE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # 🔹 输出构建结果
       - name: 输出构建结果
+        if: steps.check_build.outputs.skip_build == 'false'
         run: |
           echo "✅ Box64 构建完成"
-          echo "🔖 版本号 (前7位 commit hash): $VERSION"
+          echo "🔖 版本号: $VERSION"
           echo "📝 提交完整 hash: ${LATEST_COMMIT}"
-          echo "📦 打包文件信息:"
-          ls -lh $TAR_FILE || true
-
-      # 🔹 在 PR 或 Commit 下发布构建信息
-      - name: 在 PR 或 Commit 下发布构建信息
-        if: steps.check_build.outputs.skip_build == 'false'
-        uses: peter-evans/create-or-update-comment@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          issue-number: ${{ github.event.pull_request.number || github.run_number }}
-          body: |
-            ✅ Box64 构建完成
-            🔖 版本号 (前7位 commit hash): ${{ env.VERSION }}
-            📝 提交完整 hash: ${{ env.LATEST_COMMIT }}
-            📦 打包文件: ${{ env.TAR_FILE }}
+          echo "📦 打包文件: $TAR_FILE"
+          ls -lh $TAR_FILE
