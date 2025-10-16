@@ -74,6 +74,7 @@ jobs:
       - name: 克隆 Box64 并构建
         if: steps.check_build.outputs.skip_build == 'false'
         run: |
+          # 在 workspace 根目录操作
           git clone --depth=1 https://github.com/ptitSeb/box64
           cd box64
           mkdir build && cd build
@@ -95,11 +96,15 @@ jobs:
 
           # 创建版本号和文件名
           SHORT_COMMIT="${LATEST_COMMIT:0:7}"
-          TAR_FILE="../../termux-glibc-box64-${SHORT_COMMIT}.tar.gz"
-          tar -czvf $TAR_FILE box64
+          TAR_FILE="termux-glibc-box64-${SHORT_COMMIT}.tar.gz"
+          
+          # 打包到 workspace 根目录
+          tar -czvf ../../$TAR_FILE box64
 
-          # 保存 last commit
+          # 保存 last commit 到 workspace 根目录
           echo "$LATEST_COMMIT" > ../../last_box64_commit.txt
+          
+          # 设置环境变量
           echo "VERSION=${SHORT_COMMIT}" >> $GITHUB_ENV
           echo "TAR_FILE=$TAR_FILE" >> $GITHUB_ENV
 
@@ -109,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: termux-glibc-box64-${{ env.VERSION }}
-          path: ${{ env.TAR_FILE }}
+          path: ${{ env.TAR_FILE }}  # 现在文件在 workspace 根目录
 
       # 🔹 上传 last commit 记录
       - name: 上传 last commit 记录
@@ -117,7 +122,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: last-box64-commit
-          path: last_box64_commit.txt
+          path: last_box64_commit.txt  # 文件在 workspace 根目录
           retention-days: 30  # 保留30天
 
       # 🔹 发布到 GitHub Release
